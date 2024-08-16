@@ -14,6 +14,7 @@ from numbers import Integral
 
 import numpy as np
 import scipy.sparse as sp
+import warnings
 
 from .base import (
     BaseEstimator,
@@ -635,16 +636,22 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         "cv": ["cv_object", StrOptions({"prefit"})],
         "random_state": ["random_state"],
         "verbose": ["boolean"],
+        "base_estimator": [
+            HasMethods(["fit", "predict"]),
+            StrOptions({"deprecated"}),
+            None,
+        ],
     }
 
     def __init__(
-        self, estimator, *, order=None, cv=None, random_state=None, verbose=False
+        self, estimator, *, order=None, cv=None, random_state=None, verbose=False, base_estimator="deprecated"
     ):
         self.estimator = estimator
         self.order = order
         self.cv = cv
         self.random_state = random_state
         self.verbose = verbose
+        self.base_estimator = base_estimator
 
     def _log_message(self, *, estimator_idx, n_estimators, processing_msg):
         if not self.verbose:
@@ -690,6 +697,48 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         Y_output = Y_output_chain[:, inv_order]
 
         return Y_output
+    
+    def _validate_estimator(self, default=None):
+        """Check the base estimator.
+
+        Sets the `estimator_` attributes.
+        """
+        if self.estimator is not None and (
+            self.base_estimator not in [None, "deprecated"]
+        ):
+            raise ValueError(
+                "Both `estimator` and `base_estimator` were set. Only set `estimator`."
+            )
+
+        if self.estimator is not None:
+            self._estimator = self.estimator
+        elif self.base_estimator not in [None, "deprecated"]:
+            warnings.warn(
+                "`base_estimator` was renamed to `estimator` in version 1.6 and "
+                "will be removed in 1.8.",
+                FutureWarning,
+            )
+            self._estimator = self.base_estimator
+        else:
+            self._estimator = default
+
+        if self._estimator is None:
+            raise ValueError("`estimator` cannot be None.")
+
+    # # TODO: remove in 1.8
+    # # mypy error: Decorated property not supported
+    # @deprecated(  # type: ignore
+    #     "Attribute `base_estimator_` was deprecated in version 1.6 and will be removed "
+    #     "in 1.8. Use `estimator_` instead."
+    # )
+    # @property
+    # def base_estimator_(self):
+    #     return self._estimator
+
+    # # TODO: remove in 1.8
+    # @property
+    # def estimator_(self):
+    #     return self._estimator    
 
     @abstractmethod
     def fit(self, X, Y, **fit_params):
@@ -713,6 +762,8 @@ class _BaseChain(BaseEstimator, metaclass=ABCMeta):
         self : object
             Returns a fitted instance.
         """
+        self._validate_estimator()
+        
         X, Y = self._validate_data(X, Y, multi_output=True, accept_sparse=True)
 
         random_state = check_random_state(self.random_state)
@@ -844,7 +895,7 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
     ----------
     estimator : estimator
         The base estimator from which the classifier chain is built.
-
+            
     order : array-like of shape (n_outputs,) or 'random', default=None
         If `None`, the order will be determined by the order of columns in
         the label matrix Y.::
@@ -901,6 +952,7 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
     
     base_estimator : object, default="deprecated"
          Use `estimator` instead.
+
          .. deprecated:: 1.6
              `base_estimator` is deprecated and will be removed in 1.8.
              Use `estimator` instead
@@ -988,6 +1040,7 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
         chain_method="predict",
         random_state=None,
         verbose=False,
+        base_estimator="deprecated"
     ):
         super().__init__(
             estimator,
@@ -995,8 +1048,10 @@ class ClassifierChain(MetaEstimatorMixin, ClassifierMixin, _BaseChain):
             cv=cv,
             random_state=random_state,
             verbose=verbose,
+            base_estimator=base_estimator
         )
         self.chain_method = chain_method
+        
 
     @_fit_context(
         # ClassifierChain.estimator is not validated yet
@@ -1119,6 +1174,13 @@ class RegressorChain(MetaEstimatorMixin, RegressorMixin, _BaseChain):
     ----------
     estimator : estimator
         The base estimator from which the regressor chain is built.
+        
+    base_estimator : estimator
+        The base estimator from which the classifier chain is built.
+
+        .. deprecated:: x.x
+            `base_estimator` is deprecated and will be removed in x.x.
+            Use `estimator` instead.
 
     order : array-like of shape (n_outputs,) or 'random', default=None
         If `None`, the order will be determined by the order of columns in
